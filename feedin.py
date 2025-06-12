@@ -2,9 +2,14 @@ import pandas as pd
 from sentence_transformers import SentenceTransformer
 from pinecone import Pinecone, ServerlessSpec
 import io 
+from dotenv import load_dotenv
+import os
 
 
-API_KEY = "pcsk_LASs4_6wj1qLq55vEYQZoS43iu8sFsB4rCWWiyuBMUH7nJUY9yZSXHihiHvDAvvsxKmUw" 
+load_dotenv()
+
+
+API_KEY = os.getenv("PINECONE_API_KEY")
 ENVIRONMENT = "us-east-1" 
 INDEX_NAME = "product-recommendation-index"
 EMBEDDING_MODEL_NAME = 'all-MiniLM-L6-v2' 
@@ -172,13 +177,9 @@ C536383,35004C,SET OF 3 COLOURED  FLYING DUCKS,-1.0,2010-12-01 09:49:00,4.65,153
 536384,22464,HANGING METAL HEART LANTERN,12.0,2010-12-01 09:53:00,1.65,18074.0,United Kingdom
 """
 
-
-# --- 1. Load Data ---
-# Read the CSV content into a pandas DataFrame
 try:
     data_io = io.StringIO(csv_content)
     df = pd.read_csv(data_io)
-    # Drop rows where 'Description' is missing, as we need it for embeddings
     df.dropna(subset=['Description'], inplace=True)
     df.reset_index(drop=True, inplace=True)
     print(f"Loaded {len(df)} rows from the dataset.")
@@ -186,7 +187,7 @@ except Exception as e:
     print(f"Error loading data: {e}")
     exit()
 
-# --- 2. Initialize Embedding Model ---
+
 try:
     model = SentenceTransformer(EMBEDDING_MODEL_NAME)
     print(f"Loaded embedding model: {EMBEDDING_MODEL_NAME}")
@@ -199,12 +200,10 @@ except Exception as e:
     print("Please ensure 'sentence-transformers' library is installed (`pip install sentence-transformers`).")
     exit()
 
-# --- 3. Initialize Pinecone and connect to index ---
 try:
     pc = Pinecone(api_key=API_KEY, environment=ENVIRONMENT)
     index = pc.Index(INDEX_NAME)
     print(f"Connected to Pinecone index: {INDEX_NAME}")
-    # Verify index description to check its dimension
     index_description = pc.describe_index(INDEX_NAME)
     print(f"Pinecone index dimension: {index_description.dimension}")
     if index_description.dimension != model.get_sentence_embedding_dimension():
@@ -219,20 +218,13 @@ except Exception as e:
     print("Please ensure your Pinecone API key and environment are correct, and the index exists.")
     exit()
 
-# --- 4. Generate Embeddings and Upsert Data ---
 print("Generating embeddings and upserting data...")
 vectors_to_upsert = []
 for i, row in df.iterrows():
     try:
-        # Create a unique ID for each vector
-        # Combining StockCode and index to ensure uniqueness, as StockCode might not be unique per row
         vector_id = f"{row['StockCode']}-{i}"
-
-        # Get description and ensure it's a string
         description = str(row['Description'])
         embedding = model.encode(description).tolist()
-
-        # Prepare metadata, converting non-standard types to string for Pinecone compatibility if needed
         metadata = {
             "StockCode": str(row['StockCode']),
             "Description": description,
@@ -242,17 +234,17 @@ for i, row in df.iterrows():
 
         vectors_to_upsert.append((vector_id, embedding, metadata))
 
-        # Upsert in batches
+    
         if len(vectors_to_upsert) == BATCH_SIZE:
             index.upsert(vectors=vectors_to_upsert)
-            vectors_to_upsert = [] # Clear the batch
+            vectors_to_upsert = [] 
             print(f"Upserted {i + 1} vectors so far...")
 
     except Exception as e:
         print(f"Skipping row {i} due to error: {e}")
-        continue # Continue to the next row even if one fails
+        continue 
 
-# Upsert any remaining vectors
+
 if vectors_to_upsert:
     index.upsert(vectors=vectors_to_upsert)
     print(f"Upserted remaining {len(vectors_to_upsert)} vectors.")
